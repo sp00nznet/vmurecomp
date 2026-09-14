@@ -421,9 +421,37 @@ ctest --test-dir build -C Release
 The library and the recompiler have **no external dependencies** — C11 and the
 standard library only.
 
+## Provenance
+
+Worth being explicit about, since this is a recompiler.
+
+**The code is original.** No source was copied from MAME, from any VMU emulator,
+or from any other project; there is no third-party copyright header in the tree
+and no vendored dependency. What the decoder and runtime implement are *facts*
+about the hardware — opcode encodings, operand forms, cycle counts, register
+addresses, the XRAM layout, the PSW flag rules. Those come from the publicly
+published VMS/LC8670 hardware documentation that the Dreamcast community has
+maintained since about 1999, and facts are not the documentation's to license.
+
+Where that documentation is silent — notably the `BTCR`, `T0CON`, `T1CNT` and
+`P3INT` control-register bit assignments — the code uses the conventional LC86
+positions and **says so at the point of use** rather than implying a confidence
+it does not have. See [`docs/CPU.md`](docs/CPU.md).
+
+The one standard algorithm here, the VMS header checksum, is CRC-16/CCITT with
+the XMODEM parameters, verified against its published check value in
+`tests/test_pipeline.c`.
+
+**The screenshots** are this project's own output: frames rendered by recompiled
+code and captured by the runtime's PGM writer. They show public-domain VMU
+homebrew running — *VMU Gong* by John Maushammer, and *Basketball*. Thanks to
+the VMU homebrew authors of roughly 2000-2002, whose work is most of the corpus
+this was validated against; a recompiler is only as trustworthy as the variety
+of code it has been made to swallow.
+
+**No binary ships here**, and none ever did — see
+[What is not in this repo](#what-is-not-in-this-repo). You bring your own dump.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
-
-The LC8670 instruction encodings, register addresses and LCD layout this
-implements are published hardware facts; the implementation is original.

@@ -7,16 +7,26 @@
 #define HDR_SIZE        0x80
 #define DCI_HDR         32
 
-uint16_t vms_crc(const uint8_t *buf, size_t size) {
-    /* CRC-16/CCITT with polynomial 0x1021, seeded at zero, as specified for
-     * the VMS file header. */
-    uint32_t n = 0;
-    for (size_t i = 0; i < size; i++) {
-        n ^= (uint32_t)buf[i] << 8;
-        for (int c = 0; c < 8; c++)
-            n = (n & 0x8000) ? ((n << 1) ^ 4129) : (n << 1);
+/* The standard CCITT generator polynomial, x^16 + x^12 + x^5 + 1. */
+#define CRC16_CCITT_POLY 0x1021
+
+/* Fold one byte into a CRC-16/CCITT register, MSB first. */
+static uint16_t crc_byte(uint16_t crc, uint8_t byte) {
+    crc ^= (uint16_t)byte << 8;
+    for (int bit = 0; bit < 8; bit++) {
+        int carried = crc & 0x8000;
+        crc = (uint16_t)(crc << 1);
+        if (carried) crc ^= CRC16_CCITT_POLY;
     }
-    return (uint16_t)(n & 0xFFFF);
+    return crc;
+}
+
+/* The VMS file header stores a CRC-16/CCITT over the whole file with the CRC
+ * field itself zeroed. Game files ignore it; data files do not. */
+uint16_t vms_crc(const uint8_t *buf, size_t size) {
+    uint16_t crc = 0;
+    for (size_t i = 0; i < size; i++) crc = crc_byte(crc, buf[i]);
+    return crc;
 }
 
 static uint16_t rd16(const uint8_t *p) { return (uint16_t)(p[0] | (p[1] << 8)); }

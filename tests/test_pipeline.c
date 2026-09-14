@@ -7,6 +7,7 @@
  */
 #include "analyze.h"
 #include "emit.h"
+#include "vms.h"
 /* Tests must assert even in a release build, where CMake defines NDEBUG. */
 #undef NDEBUG
 #include <assert.h>
@@ -141,6 +142,15 @@ static void test_entry_below_lowest_address(const char *outdir) {
     vmu_prog_free(&prog);
 }
 
+/* The VMS header CRC is plain CRC-16/CCITT seeded at zero (the XMODEM
+ * parameters), whose published check value over "123456789" is 0x31C3. */
+static void test_vms_crc(void) {
+    assert(vms_crc((const uint8_t *)"123456789", 9) == 0x31C3);
+    assert(vms_crc((const uint8_t *)"", 0) == 0x0000);
+    /* a single set bit must propagate the polynomial, not stay zero */
+    assert(vms_crc((const uint8_t *)"\x01", 1) == 0x1021);
+}
+
 int main(int argc, char **argv) {
     const char *outdir = (argc > 1) ? argv[1] : ".";
 
@@ -215,6 +225,7 @@ int main(int argc, char **argv) {
 
     vmu_prog_free(&prog);
 
+    test_vms_crc();
     test_call_past_end_of_image(outdir);
     test_entry_below_lowest_address(outdir);
 
