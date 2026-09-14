@@ -58,6 +58,89 @@ static char *slurp(const char *path, size_t *len) {
     return buf;
 }
 
+/* A small image may call past its own end - a mini-game reaching a BIOS
+ * routine, say. Such a target must not become a function: walking it yields no
+ * instructions, and an empty function used to crash the emitter. */
+static void test_call_past_end_of_image(const char *outdir) {
+    uint8_t rom[0x100];
+    memset(rom, 0, sizeof(rom));
+
+    /*  $0000  callf $3CB7   20 3C B7   far outside this 256-byte image
+     *  $0003  ret           A0
+     */
+    rom[0x000] = 0x20; rom[0x001] = 0x3C; rom[0x002] = 0xB7;
+    rom[0x003] = 0xA0;
+
+    vmu_prog_t prog;
+    assert(vmu_discover(rom, sizeof(rom), NULL, 0, &prog) == 0);
+
+    /* The out-of-range target is not an entry, and no function is empty. */
+    assert(!prog.is_entry[0x3CB7]);
+    for (size_t i = 0; i < prog.n_funcs; i++)
+        assert(prog.funcs[i].n_pcs > 0);
+
+    /* Emission must survive it and lower the call to a dispatch that traps. */
+    emit_stats_t st;
+    assert(vmu_emit(rom, sizeof(rom), &prog, outdir, "call-past-end", &st) == 0);
+
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/recomp_funcs.c", outdir);
+    char *c = slurp(path, NULL);
+    assert(c != NULL);
+    assert(strstr(c, "vmu_rt_call(0x3CB7,") != NULL);
+    free(c);
+
+    vmu_prog_free(&prog);
+}
+
+/* A function's entry is not always its lowest address: a routine that branches
+ * backwards absorbs a block below itself. Instructions are emitted in address
+ * order, so the body must open with a jump to the entry - otherwise control
+ * falls into the lower block and the entry never runs. */
+static void test_entry_below_lowest_address(const char *outdir) {
+    uint8_t rom[0x200];
+    memset(rom, 0, sizeof(rom));
+
+    /*  $0000  call $0120    09 20
+     *  $0002  ret           A0
+     *  $0110  inc  $030     62 30     <- absorbed, and lower than the entry
+     *  $0112  ret           A0
+     *  $0120  br   $0110    01 EE     <- the entry
+     */
+    rom[0x000] = 0x09; rom[0x001] = 0x20;
+    rom[0x002] = 0xA0;
+    rom[0x110] = 0x62; rom[0x111] = 0x30;
+    rom[0x112] = 0xA0;
+    rom[0x120] = 0x01; rom[0x121] = 0xEE;
+
+    static const uint16_t vec[] = { 0x0003, 0x000B, 0x0013, 0x001B, 0x0023,
+                                    0x002B, 0x0033, 0x003B, 0x0043, 0x004B };
+    for (size_t i = 0; i < sizeof(vec) / sizeof(vec[0]); i++) rom[vec[i]] = 0xA0;
+
+    vmu_prog_t prog;
+    assert(vmu_discover(rom, sizeof(rom), NULL, 0, &prog) == 0);
+
+    const vmu_func_t *f = vmu_func_at(&prog, 0x0120);
+    assert(f != NULL);
+    assert(f->n_pcs == 3);              /* br, inc, ret */
+    assert(f->pcs[0] == 0x0110);        /* lowest address is NOT the entry */
+    assert(f->entry == 0x0120);
+
+    emit_stats_t st;
+    assert(vmu_emit(rom, sizeof(rom), &prog, outdir, "entry-not-lowest", &st) == 0);
+
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/recomp_funcs.c", outdir);
+    char *c = slurp(path, NULL);
+    assert(c != NULL);
+    assert(strstr(c, "void vmu_func_0120(void) {\n    goto L_0120;") != NULL);
+    /* and a function whose entry *is* its lowest address gets no such jump */
+    assert(strstr(c, "void vmu_func_0000(void) {\n    goto L_0000;") == NULL);
+    free(c);
+
+    vmu_prog_free(&prog);
+}
+
 int main(int argc, char **argv) {
     const char *outdir = (argc > 1) ? argv[1] : ".";
 
@@ -131,6 +214,10 @@ int main(int argc, char **argv) {
     free(c);
 
     vmu_prog_free(&prog);
+
+    test_call_past_end_of_image(outdir);
+    test_entry_below_lowest_address(outdir);
+
     printf("test_pipeline: ok\n");
     return 0;
 }

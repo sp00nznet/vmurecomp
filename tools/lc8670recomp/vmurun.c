@@ -120,6 +120,15 @@ static uint16_t step(const vmu_insn_t *in) {
         break;
 
     case OP_CALL: case OP_CALLF: case OP_CALLR:
+        /* A mini-game is not self-contained: it calls BIOS routines that live
+         * outside its own image. Recompiled code lowers those to a dispatch
+         * that traps and returns, so do the same here - otherwise the oracle
+         * would halt where the recompiled build carries on, and the two could
+         * never be compared on a game. */
+        if ((size_t)in->target >= vmu.rom_size) {
+            vmu_rt_trap(in->target, "call outside the image");
+            return next;
+        }
         /* The interpreter keeps control flow on the emulated stack, so unlike
          * recompiled code it honours a handler that rewrites its own return
          * address. That is exactly why it is the oracle. */

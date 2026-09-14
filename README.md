@@ -49,38 +49,71 @@ That is the oracle: when the recompiled build and the interpreter disagree, the
 bug is in the recompiler; when they agree and the screen is wrong, the bug is in
 the runtime.
 
-## Status — alpha: it recompiles, it runs, it boots and idles
+## Status — alpha: real software recompiles, runs, and renders
 
-Version **0.1.0**. The pipeline works end to end on a real image:
+Version **0.1.0**. The pipeline works end to end:
 
-**dump → decode → discover → emit C → compile → run natively.**
+**image → decode → discover → emit C → compile → run natively.**
 
-Brought up on the **VMS BIOS v1.005**, which is the only executable image in the
-Dreamcast VMU set (see [Picking a target](#picking-a-target)):
+Across a corpus of **128 VMU programs**, every one produces code, and three are
+verified all the way through to a rendered frame that is **byte-identical to the
+interpreter**.
 
 | | |
 |---|---|
-| Functions discovered | **148** (109 from the vectors alone) |
-| Instructions recompiled | **20,698** |
-| Generated C | **1.5 MB**, compiles and links clean |
-| Runtime traps during execution | **0** |
-| Recompiled frame vs interpreted frame | **byte-identical** |
+| Images that recompile | **128 / 128** |
+| Images reaching no undefined opcode | **96 / 128** |
+| Functions discovered across the corpus | **10,359** |
+| Instructions recompiled across the corpus | **7,319,505** |
 | Opcode conformance | **786 / 786 checks** |
 
-The recompiled BIOS executes its reset path — set the oscillator, set SP, select
-the RAM bank, run the init chain — drives the LCD to its power-on state, and
-reaches the firmware idle loop. It does not get past that loop yet; see
-[What does not work](#what-does-not-work).
+### Screenshots
 
-### Screenshot
+Both of these are the 48×32 LCD driven by **recompiled native C**, and both are
+byte-identical to what the interpreter renders.
 
-![The recompiled VMS BIOS driving the LCD](docs/img/vmu-boot.png)
+| *VMU Gong* — John Maushammer | *Basketball* |
+|---|---|
+| ![VMU Gong title screen](docs/img/vmu-gong.png) | ![Basketball control screen](docs/img/vmu-basketball.png) |
+| 19 functions, 298 instructions | 73 functions, 14,667 instructions |
 
-The 48×32 LCD after the recompiled BIOS runs its reset path: **all 1536 pixels
-and all four icons lit**, which is the power-on segment test the firmware drives
-before it idles. It is a black rectangle because that is genuinely what the
-hardware shows at this point, not because the render is broken — the interpreter
-produces the identical frame, byte for byte.
+The BIOS renders too, but its frame is every pixel lit — the power-on segment
+test — so it makes a poor screenshot and a good conformance case.
+
+### Compatibility
+
+The corpus is the public-domain VMU homebrew scene of roughly 2000-2002, plus
+the BIOS. A selection, with the numbers the recompiler reports; **you supply the
+images**, none ship here.
+
+| Title | Functions | Instructions | Undefined | Reached | Status |
+|---|---:|---:|---:|---:|---|
+| *VMU Gong* (J. Maushammer) | 19 | 298 | 0 | 8.1% | runs, frame verified |
+| *Basketball* | 73 | 14,667 | 0 | 31.0% | runs, frame verified |
+| VMS BIOS v1.005 | 148 | 20,698 | 58 | 13.2% | runs, frame verified |
+| *Jim's Bowling* | 138 | 46,734 | 0 | 30.8% | recompiles, renders |
+| *Sniper* | 155 | 36,923 | 7 | 40.2% | recompiles, renders |
+| *Magic 8 Ball* | 46 | 14,164 | 0 | 42.8% | recompiles, renders |
+| *Virtual Teacher* | 48 | 13,362 | 0 | 27.7% | recompiles, renders |
+| *VMU Dice* | 45 | 12,290 | 0 | 27.3% | recompiles, renders |
+| *Minesweeper* (S. Gust) | 29 | 1,291 | 0 | 22.8% | recompiles, renders |
+| *Slide Puzzle* | 25 | 589 | 0 | 16.4% | recompiles, renders |
+| *Swampy* (Inuendo) | 46 | 1,013 | 0 | 9.2% | recompiles, renders |
+| *Scroll Demo* | 18 | 350 | 0 | 9.5% | recompiles, renders |
+| …122 more | | | | | recompiles |
+
+What the statuses mean:
+
+- **runs, frame verified** — recompiled to C, compiled, executed natively, and
+  the rendered frame is byte-identical to the interpreter's.
+- **recompiles, renders** — recompiles clean and draws real content under the
+  interpreter; the recompiled build has not been diffed frame-by-frame yet.
+- **recompiles** — produces C with no hard failure.
+
+**Undefined** counts opcodes reached by discovery, which happens when it walks
+into data; those lower to runtime traps rather than build failures. **Reached**
+is how much of the image discovery covered — low figures are mostly font and
+sprite data, not missed code.
 
 ### What the generated C looks like
 
@@ -147,6 +180,11 @@ L_0200:
 
 Honest list; details and the reasoning in [`ROADMAP.md`](ROADMAP.md).
 
+- **Mini-games are not self-contained.** A `.vms` calls BIOS routines that live
+  outside its own image — *Basketball* makes three such calls past its 9 KB end.
+  Both engines lower those to a trap that returns, which is enough to keep
+  running, but the routine does nothing. Running a game *with* the BIOS mapped
+  needs the `EXT` address-space switch modelled.
 - **The firmware idle loop is never left.** The BIOS parks in a
   `set1 PCON,0` / test-flag / repeat loop at `$3424`, waiting for an interrupt
   to set a RAM flag. Interrupts *are* delivered, and a button press edge *is*
@@ -155,13 +193,15 @@ Honest list; details and the reasoning in [`ROADMAP.md`](ROADMAP.md).
   assignments confirmed against hardware** — those bits are not in the
   published VMS documentation, and the current model uses the conventional LC86
   positions rather than guessing further. Every such spot is marked in the
-  source.
-- **Coverage is 13.2% of the BIOS image** with the thunk table seeded. Much of
-  the rest is font and icon data, but some is code reached only through
-  computed jumps and through the `EXT` bit that switches ROM and flash address
-  space, which discovery does not model.
+  source. Mini-games do not depend on this and run regardless.
 - **Flash address space is not modelled.** The BIOS swaps `EXT` to run code out
-  of flash; only ROM space is decoded.
+  of flash; only ROM space is decoded. This is also what caps image coverage:
+  13.2% of the BIOS, and 8-43% across the corpus.
+- **Shared blocks are duplicated across functions.** Discovery walks each
+  function independently, so a routine reached by a plain jump from several
+  callers is emitted into each. Usually harmless; on the worst image in the
+  corpus it is a ~190× blowup — 5.3M emitted instructions over ~28 KB of
+  distinct code — which would make that one impractical to compile.
 - **A rewritten return address is not honoured** by recompiled code. The
   interpreter honours it, which is one of the things it is for.
 - No save states, no SDL frontend, no Maple/serial link.
@@ -319,21 +359,34 @@ the harness skips with a clear message when it is absent.
 | Corpus | Result |
 |---|---|
 | Opcode space | **786 / 786** |
-| Images | opt-in, see above |
+| Images | **96 / 128** locally; opt-in, skipped in public CI |
+
+The image baseline is **96**, not 128: an image counts as passing only when
+discovery reaches *no* undefined opcode. All 128 recompile. The stricter bar is
+deliberate — it leaves the number somewhere to go as discovery improves, and it
+is what regressions are measured against.
 
 ## Picking a target
 
-The Dreamcast VMU set contains exactly one executable image: **`[BIOS] VMS
-(World) (1.005)`**, the 64 KB firmware. There are no mini-games in it — VMU
-mini-games ship *inside* Dreamcast save files and have to be extracted from a
-`.vms`, a `.vmi`+`.vms` pair or a `.dci`. So the BIOS is what this toolkit was
-brought up on, and it is a good first target: it is a real LC8670 program that
-exercises the LCD, the timers, the buzzer and the interrupt controller, and
-every VMU emulator boots it first.
+`lc8670recomp` reads `.vms` game files, `.dci` containers and raw dumps such as
+a BIOS image. It rejects `.vms` *data* files with a clear message, since those
+hold save data and no code.
 
-`lc8670recomp` reads `.vms` game files, `.dci` containers and raw dumps. It
-rejects `.vms` *data* files with a clear message, since those hold save data and
-no code.
+Worth knowing when you go looking:
+
+- **A Dreamcast "VMU set" is usually just the BIOS.** Mini-games ship *inside*
+  Dreamcast save files and have to be extracted from a `.vms`, a `.vmi`+`.vms`
+  pair, or a `.dci`.
+- **The homebrew scene is the better corpus.** VMU homebrew from roughly
+  2000-2002 is plentiful, frequently public domain, and written by many
+  different hands — which is exactly what you want for exercising a decoder.
+  Most of the corpus behind the table above is that.
+- **Start small.** *VMU Gong* is 19 functions; you can read the whole generated
+  file. Move to something like *Basketball* at 73 functions once the small one
+  runs. That is the same simple-then-generalize pair `lynxrecomp` used.
+- **Filenames lie; headers do not.** The file this was brought up on was
+  distributed as `Bounce`, but its VMS header reads *"VMU Gong by john
+  maushammer"*. `lc8670recomp info` prints the header.
 
 ## What is not in this repo
 

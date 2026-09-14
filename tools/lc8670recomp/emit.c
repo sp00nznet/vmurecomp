@@ -190,6 +190,20 @@ static void emit_insn(emit_ctx_t *e, const vmu_func_t *f, const vmu_insn_t *in,
 static void emit_func(emit_ctx_t *e, const uint8_t *rom, size_t rom_size,
                       const vmu_prog_t *prog, const vmu_func_t *f,
                       emit_stats_t *st) {
+    if (f->n_pcs == 0) {
+        /* Discovery should no longer produce these, but emitting a body-less
+         * stub is better than indexing an empty array if one ever slips
+         * through - and the trap says so at run time instead of silently
+         * falling off the end. */
+        fprintf(e->f, "\n/* vmu_func_%04X: no instructions reached */\n", f->entry);
+        fprintf(e->f, "void vmu_func_%04X(void) {\n", f->entry);
+        fprintf(e->f, "    vmu_rt_trap(0x%04X, \"entry with no reachable code\");\n",
+                f->entry);
+        fprintf(e->f, "}\n");
+        if (st) st->traps++;
+        return;
+    }
+
     uint16_t lo = f->pcs[0];
     uint16_t hi = f->pcs[f->n_pcs - 1];
 
@@ -197,6 +211,13 @@ static void emit_func(emit_ctx_t *e, const uint8_t *rom, size_t rom_size,
             f->entry, lo, hi, f->n_pcs);
     fprintf(e->f, "void vmu_func_%04X(void) {\n", f->entry);
     e->pending_cycles = 0;
+
+    /* Instructions are emitted in address order, but the entry is not always
+     * the lowest address in the function - a routine can absorb a block that
+     * sits below it. Without this jump, control would fall into whatever
+     * happens to come first and never reach the entry at all. */
+    if (f->pcs[0] != f->entry)
+        fprintf(e->f, "    goto L_%04X;\n", f->entry);
 
     for (size_t i = 0; i < f->n_pcs; i++) {
         uint16_t pc = f->pcs[i];

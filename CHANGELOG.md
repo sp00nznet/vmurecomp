@@ -8,8 +8,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.1.0] - 2026-09-14
 
-First release. The pipeline works end to end on a real image: dump → decode →
-discover → emit C → compile → run natively.
+First release. The pipeline works end to end: image → decode → discover → emit
+C → compile → run natively.
+
+Validated against a corpus of 128 VMU programs, mostly public-domain homebrew.
+All 128 recompile; 96 reach no undefined opcode. Three are verified through to a
+rendered frame that is byte-identical to the interpreter's: *VMU Gong* (19
+functions), *Basketball* (73 functions) and the VMS BIOS v1.005 (148 functions).
 
 ### Added
 
@@ -65,15 +70,43 @@ discover → emit C → compile → run natively.
   all on hand-written synthetic input.
 - GitHub Actions CI building and testing on Linux, macOS and Windows.
 
+### Fixed
+
+Both found by running a 128-image corpus rather than a single target, and both
+now covered by a regression test in `test_pipeline`.
+
+- **Emitter crash on an image that calls past its own end.** Call targets found
+  during discovery were registered as function entries without a range check,
+  unlike seeds. A small image calling a BIOS routine outside itself produced an
+  entry that walked zero instructions, and emitting that empty function indexed
+  an empty array. Out-of-range call targets are no longer entries; such calls
+  lower to a dispatch that traps at run time, which is what a call leaving the
+  image is.
+- **Wrong code executed when a function's entry was not its lowest address.**
+  Instructions are emitted in address order, so a routine that branches
+  backwards and absorbs a block below itself began executing at that block
+  instead of at its entry. In one corpus image that block was an infinite stub,
+  so the function spun forever and the title rendered nothing. The body now
+  opens with a jump to the entry when the entry is not the first instruction.
+- **The interpreter halted where recompiled code carried on.** A call outside
+  the image stopped the interpreter dead while the recompiled build trapped and
+  returned, so the two could never be compared on a mini-game. The interpreter
+  now models an unmapped call the same way.
+
 ### Known limitations
 
+- Mini-games are not self-contained: they call BIOS routines outside their own
+  image, which both engines lower to a trap that returns. Running one with the
+  BIOS mapped needs the `EXT` address-space switch modelled.
 - The recompiled BIOS reaches the firmware idle loop at `$3424` and does not
   leave it. Interrupts are delivered and a press edge is raised, but the source
   the loop waits on is unidentified; resolving it needs the `BTCR` / `T0CON` /
   `P3INT` control-register bit assignments confirmed against hardware, as they
-  are not in the published documentation.
-- Discovery reaches 13.2% of the BIOS image with the thunk table seeded.
-- The `EXT` flash/ROM address-space switch is not modelled.
+  are not in the published documentation. Mini-games do not depend on this.
+- The `EXT` flash/ROM address-space switch is not modelled, which is what caps
+  coverage at 8-43% per image.
+- Blocks shared between functions are duplicated into each. On the worst corpus
+  image that is a ~190x blowup over its distinct code.
 - Recompiled code does not honour a rewritten return address; the interpreter
   does.
 

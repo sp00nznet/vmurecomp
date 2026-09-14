@@ -94,11 +94,19 @@ static int find_entries(const uint8_t *rom, size_t rom_size,
 
             if (in.has_target) {
                 if (in.is_call) {
-                    if (!is_entry[in.target]) {
-                        is_entry[in.target] = 1;
-                        if (vec_push(entries, in.target) != 0) goto oom;
+                    /* Only in-range targets become functions. A small image can
+                     * call past its own end - a mini-game calling a BIOS
+                     * routine, say - and an entry there would walk zero
+                     * instructions and leave an empty function behind. The
+                     * emitter lowers such a call to a dispatch that traps at
+                     * run time, which is what a call leaving the image is. */
+                    if ((size_t)in.target < rom_size) {
+                        if (!is_entry[in.target]) {
+                            is_entry[in.target] = 1;
+                            if (vec_push(entries, in.target) != 0) goto oom;
+                        }
+                        if (vec_push(&work, in.target) != 0) goto oom;
                     }
-                    if (vec_push(&work, in.target) != 0) goto oom;
                 } else {
                     is_label[in.target] = 1;
                     if (vec_push(&work, in.target) != 0) goto oom;
