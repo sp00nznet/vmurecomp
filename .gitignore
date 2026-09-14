@@ -1,0 +1,50 @@
+# --- build output ---------------------------------------------------------
+build/
+build-*/
+out/
+*.o
+*.obj
+*.a
+*.lib
+*.exe
+*.pdb
+*.ilk
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+*.sln
+*.vcxproj*
+
+# --- REGENERATED CODE: never committed ------------------------------------
+# Everything the recompiler emits is derived from a proprietary binary.
+# The tool ships; the output never does. See README "What is not in this repo".
+generated/
+*.recomp.c
+*.recomp.h
+recomp_funcs.c
+recomp_funcs.h
+recomp_dispatch.c
+
+# --- BINARIES / DUMPS: never committed ------------------------------------
+# BIOS / firmware images, VMU save containers, extracted mini-games, corpora.
+*.vms
+*.vmi
+*.vmd
+*.dci
+*.bios
+*.bin
+*.rom
+corpus/
+roms/
+
+# --- capture output -------------------------------------------------------
+*.pgm
+*.pbm
+*.wav
+
+# --- editors / OS ---------------------------------------------------------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
